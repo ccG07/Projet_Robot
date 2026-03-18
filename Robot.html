@@ -3,8 +3,7 @@
 <head>
   <title>Robot Control</title>
   <link rel="stylesheet" href="https://www.w3schools.com/w3css/5/w3.css">
-  <!-- Ajouter dans le <head> -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     body { font-family: monospace; background: #111; color: #eee; text-align: center; padding: 20px; }
     h1 { margin-bottom: 20px; }
@@ -25,6 +24,36 @@
       width: 200px;
     }
 
+    /* Robot 1 — orange */
+    .robot-panel.robot1 {
+      border-color: #ff8c00;
+      box-shadow: 0 0 12px rgba(255, 140, 0, 0.3);
+    }
+    .robot-panel.robot1 h2 {
+      color: #ff8c00;
+    }
+    .robot-panel.robot1 .dpad button {
+      border-color: #ff8c00;
+      color: #eee;
+    }
+    .robot-panel.robot1 .dpad button:hover { background: #2e1e00; }
+    .robot-panel.robot1 .dpad button:active { background: #3e2800; }
+
+    /* Robot 2 — aqua blue */
+    .robot-panel.robot2 {
+      border-color: #00bcd4;
+      box-shadow: 0 0 12px rgba(0, 188, 212, 0.3);
+    }
+    .robot-panel.robot2 h2 {
+      color: #00bcd4;
+    }
+    .robot-panel.robot2 .dpad button {
+      border-color: #00bcd4;
+      color: #eee;
+    }
+    .robot-panel.robot2 .dpad button:hover { background: #001e22; }
+    .robot-panel.robot2 .dpad button:active { background: #002b30; }
+
     .robot-panel h2 { margin-bottom: 16px; }
 
     /* D-Pad */
@@ -41,14 +70,12 @@
       width: 52px; height: 52px;
       font-size: 18px;
       background: #2a2a2a;
-      color: #eee;
       border: 1px solid #444;
       border-radius: 6px;
       cursor: pointer;
+      transition: background 0.15s;
     }
 
-    .dpad button:hover { background: #3a3a3a; }
-    .dpad button:active { background: #555; }
     .dpad .empty { visibility: hidden; }
 
     /* Sync button */
@@ -91,84 +118,84 @@
   <div class="robots-container">
 
     <!-- Robot 1 -->
-<div class="robot-panel">
-  <h2>Robot 1</h2>
-  <div class="dpad">
-    <div class="empty"></div>
-    <button onclick="cmd(1,'HAUT')"><i class="fas fa-arrow-up"></i></button>
-    <div class="empty"></div>
-    <button onclick="cmd(1,'GAUCHE')"><i class="fas fa-arrow-left"></i></button>
-    <div class="empty"></div>
-    <button onclick="cmd(1,'DROITE')"><i class="fas fa-arrow-right"></i></button>
-    <div class="empty"></div>
-    <button onclick="cmd(1,'BAS')"><i class="fas fa-arrow-down"></i></button>
-    <div class="empty"></div>
+    <div class="robot-panel robot1">
+      <h2>Robot 1</h2>
+      <div class="dpad">
+        <div class="empty"></div>
+        <button onclick="cmd(1,'HAUT')"><i class="fas fa-arrow-up"></i></button>
+        <div class="empty"></div>
+        <button onclick="cmd(1,'GAUCHE')"><i class="fas fa-arrow-left"></i></button>
+        <div class="empty"></div>
+        <button onclick="cmd(1,'DROITE')"><i class="fas fa-arrow-right"></i></button>
+        <div class="empty"></div>
+        <button onclick="cmd(1,'BAS')"><i class="fas fa-arrow-down"></i></button>
+        <div class="empty"></div>
+      </div>
+    </div>
+
+    <!-- Robot 2 -->
+    <div class="robot-panel robot2">
+      <h2>Robot 2</h2>
+      <div class="dpad">
+        <div class="empty"></div>
+        <button onclick="cmd(2,'HAUT')"><i class="fas fa-arrow-up"></i></button>
+        <div class="empty"></div>
+        <button onclick="cmd(2,'GAUCHE')"><i class="fas fa-arrow-left"></i></button>
+        <div class="empty"></div>
+        <button onclick="cmd(2,'DROITE')"><i class="fas fa-arrow-right"></i></button>
+        <div class="empty"></div>
+        <button onclick="cmd(2,'BAS')"><i class="fas fa-arrow-down"></i></button>
+        <div class="empty"></div>
+      </div>
+    </div>
+
   </div>
-</div>
 
-   <!-- Robot 2 -->
-<div class="robot-panel">
-  <h2>Robot 2</h2>
-  <div class="dpad">
-    <div class="empty"></div>
-    <button onclick="cmd(2,'HAUT')"><i class="fas fa-arrow-up"></i></button>
-    <div class="empty"></div>
-    <button onclick="cmd(2,'GAUCHE')"><i class="fas fa-arrow-left"></i></button>
-    <div class="empty"></div>
-    <button onclick="cmd(2,'DROITE')"><i class="fas fa-arrow-right"></i></button>
-    <div class="empty"></div>
-    <button onclick="cmd(2,'BAS')"><i class="fas fa-arrow-down"></i></button>
-    <div class="empty"></div>
-  </div>
-</div>
-
+  <!-- Sync -->
+  <div class="sync-section">
+    <button id="syncBtn" onclick="toggleSync()">SYNC OFF</button>
   </div>
 
- <!-- Sync -->
-<div class="sync-section">
-  <button id="syncBtn" onclick="toggleSync()">SYNC OFF</button>
-</div>
+  <!-- Affichage écran -->
+  <div id="screen">
+    <div id="lastCmd">En attente...</div>
+  </div>
 
-<!-- Affichage écran -->
-<div id="screen">
-  <div id="lastCmd">En attente...</div>
-</div>
+  <!-- Log -->
+  <div id="log">> Pret.</div>
 
-<!-- Log -->
-<div id="log">> Pret.</div>
+  <script>
+    let sync = false;
 
-<script>
-  let sync = false;
-
-  function toggleSync() {
-    sync = !sync;
-    const btn = document.getElementById('syncBtn');
-    btn.textContent = sync ? 'SYNC ON' : 'SYNC OFF';
-    btn.classList.toggle('active', sync);
-    afficher(sync ? 'SYNC active' : 'SYNC desactive');
-    log(sync ? '[SYNC] Active' : '[SYNC] Desactive');
-  }
-
-  function cmd(robot, dir) {
-    if (sync) {
-      afficher(`R1 + R2 -> ${dir}`);
-      log(`[R1+R2] -> ${dir}`);
-    } else {
-      afficher(`R${robot} -> ${dir}`);
-      log(`[R${robot}] -> ${dir}`);
+    function toggleSync() {
+      sync = !sync;
+      const btn = document.getElementById('syncBtn');
+      btn.textContent = sync ? 'SYNC ON' : 'SYNC OFF';
+      btn.classList.toggle('active', sync);
+      afficher(sync ? 'SYNC active' : 'SYNC desactive');
+      log(sync ? '[SYNC] Active' : '[SYNC] Desactive');
     }
-  }
 
-  function afficher(msg) {
-    document.getElementById('lastCmd').textContent = msg;
-  }
+    function cmd(robot, dir) {
+      if (sync) {
+        afficher(`R1 + R2 -> ${dir}`);
+        log(`[R1+R2] -> ${dir}`);
+      } else {
+        afficher(`R${robot} -> ${dir}`);
+        log(`[R${robot}] -> ${dir}`);
+      }
+    }
 
-  function log(msg) {
-    const el = document.getElementById('log');
-    el.innerHTML += `<div>> ${msg}</div>`;
-    el.scrollTop = el.scrollHeight;
-  }
-</script>
+    function afficher(msg) {
+      document.getElementById('lastCmd').textContent = msg;
+    }
+
+    function log(msg) {
+      const el = document.getElementById('log');
+      el.innerHTML += `<div>> ${msg}</div>`;
+      el.scrollTop = el.scrollHeight;
+    }
+  </script>
 
 </body>
 </html>
