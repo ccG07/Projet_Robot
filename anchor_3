@@ -1,0 +1,45 @@
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLEAdvertising.h>
+
+// UUID commun à tous les anchors
+#define SERVICE_UUID "12345678-1234-1234-1234-1234567890ab"
+
+// Nom unique de l'anchor
+#define ANCHOR_ID "Anchor_3"
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialise le BLE avec le nom de l'anchor
+  BLEDevice::init(ANCHOR_ID);
+
+  // Création du serveur BLE
+  BLEServer *pServer = BLEDevice::createServer();
+
+  // Création du service avec UUID
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pService->start();
+
+  // Configuration de la publicité BLE
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);   // important pour que le nom soit bien visible
+  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMinPreferred(0x12);
+
+  // Démarrer l'émission BLE
+  BLEDevice::startAdvertising();
+
+  Serial.print(" ");
+  Serial.print(ANCHOR_ID);
+  Serial.println(" est actif et en emission BLE");
+
+  Serial.print("MAC: ");
+  Serial.println(BLEDevice::getAddress().toString().c_str());
+}
+
+void loop() {
+  // rien à faire
+}
