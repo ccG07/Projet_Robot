@@ -1,0 +1,93 @@
+import socket
+import json
+import threading
+from evdev import InputDevice, ecodes, list_devices
+
+# --- CONFIGURATION ---
+UDP_PORT = 1234
+ESP_IP = "192.168.4.1"
+ALPHA = 0.4  # Coefficient du filtre (plus c'est bas, plus c'est stable/lent)
+DEADZONE = 10000 # Zone morte pour éviter que le robot bouge tout seul
+
+# 1. Initialisation de la Manette
+def find_gamepad():
+    devices = [InputDevice(path) for path in list_devices()]
+    for device in devices:
+        if 'X-Box' in device.name or 'Xbox' in device.name:
+            return device
+    return None
+
+gamepad = find_gamepad()
+if not gamepad:
+    print("ERREUR : Aucune manette Xbox trouvée !")
+    exit()
+
+# 2. Socket UDP
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("0.0.0.0", UDP_PORT))
+
+# 3. GPS & Filtre
+rssi_history = {}
+
+def rssi_to_meters(rssi, p0=-60, n=2.5):
+    if rssi == 0: return -1.0
+    return round(10 ** ((p0 - rssi) / (10 * n)), 2)
+
+def gps_listener():
+    """Écoute les messages GPS de l'ESP32 en arrière-plan"""
+    print("[*] Écoute GPS active...")
+    while True:
+        try:
+            data, _ = sock.recvfrom(1024)
+            paquet = json.loads(data.decode())
+            if paquet.get("type") == "GPS":
+                nom = paquet.get("balise")
+                rssi = paquet.get("rssi")
+
+                # Application du filtre Alpha
+                if nom not in rssi_history:
+                    rssi_history[nom] = rssi
+                else:
+                    rssi_history[nom] = (ALPHA * rssi) + ((1 - ALPHA) * rssi_history[nom])
+
+                dist = rssi_to_meters(rssi_history[nom])
+                print(f"\r[GPS] {nom} | Distance : {dist}m (Lissé)      ", end="")
+        except: pass
+
+# 4. Envoi des Commandes
+def send_cmd(cmd, v=255):
+    msg = json.dumps({"cmd": cmd, "v": v})
+    sock.sendto(msg.encode(), (ESP_IP, UDP_PORT))
+
+# 5. Boucle Manette
+def controller_loop():
+    print(f"\r[*] Manette {gamepad.name} prête ! Contrôle le robot.")
+    for event in gamepad.read_loop():
+        # Joystick Gauche (Axe Y pour Avancer/Stop)
+        if event.type == ecodes.EV_ABS:
+            if event.code == ecodes.ABS_Y:
+                val = event.value # 0 (haut) à 65535 (bas), milieu ~32768
+                if val < 32768 - DEADZONE:
+                    send_cmd("AVANCE")
+                elif val > 32768 + DEADZONE:
+                    send_cmd("STOP") # Ou RECULER si tu l'ajoutes
+                else:
+                    send_cmd("STOP")
+
+            # Joystick Gauche (Axe X pour Gauche/Droite)
+            elif event.code == ecodes.ABS_X:
+                val = event.value
+                if val < 32768 - DEADZONE:
+                    send_cmd("GAUCHE")
+                elif val > 32768 + DEADZONE:
+                    send_cmd("DROITE")
+
+        # Boutons (Ex: Bouton A pour Stop d'urgence)
+        elif event.type == ecodes.EV_KEY:
+            if event.code == ecodes.BTN_A and event.value == 1:
+                send_cmd("STOP")
+                print("\n[!] ARRET D'URGENCE (Bouton A)")
+
+# Lancement
+threading.Thread(target=gps_listener, daemon=True).start()
+controller_loop()
