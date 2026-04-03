@@ -1,0 +1,141 @@
+import socket
+import json
+import threading
+import serial
+import time
+from evdev import InputDevice, ecodes, list_devices
+
+# --- CONFIGURATION ---
+ROBOT_1_IP = "192.168.4.1"
+ROBOT_2_IP = "192.168.4.3"
+UDP_PORT = 1234
+SERIAL_PORT = "/dev/ttyGPS"
+
+ALPHA = 0.3
+N_FACTOR = 2.4
+ANCHOR_CALIBRATION = {
+    "Anchor_1": -60,
+    "Anchor_2": -62,
+    "Anchor_3": -67,
+    "DEFAULT": -67
+}
+
+# --- VARIABLES D'ÉTAT ---
+current_target = ROBOT_1_IP
+target_name = "ROBOT_1"
+control_mode = "SINGLE"
+rssi_filtered = {}
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# --- LOGIQUE GPS & FILTRAGE ---
+
+def calculate_dist(rssi, anchor_name):
+    p0 = ANCHOR_CALIBRATION.get(anchor_name, ANCHOR_CALIBRATION["DEFAULT"])
+    return round(10 ** ((p0 - rssi) / (10 * N_FACTOR)), 2)
+
+def check_safety(intended_cmd):
+    rssi_actuel = rssi_filtered.get("Anchor_3", -100)
+    dist_actuelle = calculate_dist(rssi_actuel, "Anchor_3")
+    if dist_actuelle < 0.5 and intended_cmd == "AVANCE":
+        print(f"\r[SÉCURITÉ] BLOQUÉ ! ({dist_actuelle}m)      ", end="")
+        return "STOP"
+    return intended_cmd
+
+def gps_listener():
+    global rssi_filtered
+    try:
+        ser = serial.Serial(SERIAL_PORT, 115200, timeout=1)
+        while True:
+            if ser.in_waiting > 0:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                if "," in line:
+                    try:
+                        # On tente de découper la ligne
+                        parts = line.split(",")
+                        if len(parts) != 2: continue # Ligne incomplète, on ignore
+
+                        name, rssi_raw = parts
+
+                        # Ton fix pour "or_3"
+                        if not name.startswith("Anchor_"):
+                            continue
+
+                        rssi_val = int(rssi_raw)
+
+                        # Mise à jour du filtre Alpha
+                        if name not in rssi_filtered:
+                            rssi_filtered[name] = rssi_val
+                        else:
+                            # Formule complétée : (Alpha * Nouveau) + ((1 - Alpha) * Ancien)
+                            rssi_filtered[name] = (ALPHA * rssi_val) + ((1 - ALPHA) * rssi_filtered[name])
+
+                    except ValueError:
+                        continue # Si rssi_raw n'est pas un chiffre, on passe à la suite sans crash
+
+            # Affichage Multi-Ancres (Sorti du "if" pour rester fluide)
+            if rssi_filtered:
+                display_str = f"\r[MODE: {control_mode} | CIBLE: {target_name}] | "
+                for ancre, rssi in rssi_filtered.items():
+                    dist = calculate_dist(rssi, ancre)
+                    display_str += f"{ancre}: {dist}m ({int(rssi)}dBm) | "
+                print(display_str + "          ", end="")
+
+    except Exception as e:
+        print(f"\n[!] Erreur Fatale GPS: {e}")
+
+# --- LOGIQUE MOTEURS ---
+
+def send_cmd(cmd, ip_target, v=255):
+    msg = json.dumps({"cmd": cmd, "v": v})
+    try:
+        sock.sendto(msg.encode(), (ip_target, UDP_PORT))
+    except:
+        pass
+
+# --- LOGIQUE MANETTE ---
+
+def controller_loop(gamepad):
+    global current_target, target_name, control_mode
+    print(f"\n[*] Pilote prêt ! Mode: {control_mode}")
+
+    for event in gamepad.read_loop():
+        # 1. Toggle Mode (Select)
+        if event.type == ecodes.EV_KEY and event.code == ecodes.BTN_SELECT and event.value == 1:
+            control_mode = "SYNC" if control_mode == "SINGLE" else "SINGLE"
+            print(f"\n[MODE] Changement : {control_mode}")
+
+        # 2. Switch Robot (LB/RB) - Seulement en mode SINGLE
+        if control_mode == "SINGLE" and event.type == ecodes.EV_KEY and event.value == 1:
+            if event.code == ecodes.BTN_TL:
+                current_target, target_name = ROBOT_1_IP, "ROBOT_1"
+            elif event.code == ecodes.BTN_TR:
+                current_target, target_name = ROBOT_2_IP, "ROBOT_2"
+
+        # 3. Joystick
+        if event.type == ecodes.EV_ABS:
+            cmd = None
+            if event.code == ecodes.ABS_Y:
+                if event.value < 20000: cmd = check_safety("AVANCE")
+                elif event.value > 45000: cmd = "RECULER"
+                else: cmd = "STOP"
+            elif event.code == ecodes.ABS_X:
+                if event.value < 20000: cmd = "GAUCHE"
+                elif event.value > 45000: cmd = "DROITE"
+
+            # Envoi effectif de la commande
+            if cmd:
+                if control_mode == "SYNC":
+                    send_cmd(cmd, ROBOT_1_IP)
+                    send_cmd(cmd, ROBOT_2_IP)
+                else:
+                    send_cmd(cmd, current_target)
+
+# --- LANCEMENT ---
+devices = [InputDevice(path) for path in list_devices()]
+gamepad = next((d for d in devices if "Xbox" in d.name), None)
+
+if gamepad:
+    threading.Thread(target=gps_listener, daemon=True).start()
+    controller_loop(gamepad)
+else:
+    print("ERREUR: Manette non trouvée.")
