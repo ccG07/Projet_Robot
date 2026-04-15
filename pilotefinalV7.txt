@@ -85,9 +85,20 @@ def gps_listener():
     global rssi_filtered, rssi_history
     try:
         ser = serial.Serial(SERIAL_PORT, 115200, timeout=1)
+        time.sleep(2)
+        # --- ENVOI DU HANDSHAKE ---#
+        ser.write(b"CONNECT\n")
+        print(f"[*] Tentative de poignée de main sur {SERIAL_PORT}...")
+
         while True:
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8', errors='ignore').strip()
+
+                # Vérification de la réponse de l'ESP32
+                if "ACK_PI" in line:
+                    print("\n[CONFIRMATION] ESP32 connecté et prêt ! ")
+                    continue
+
                 if "," in line:
                     try:
                         parts = line.split(",")
