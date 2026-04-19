@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Robot Control</title>
+  <link rel="stylesheet" href="https://www.w3schools.com/w3css/5/w3.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    body {
+      font-family: monospace;
+      background: #111;
+      color: #eee;
+      text-align: center;
+      padding: 20px;
+      margin-left: 420px;
+    }
+
+    h1 { margin-bottom: 20px; }
+
+    .camera-section {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      width: 360px;
+      text-align: center;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    #cam1 {
+      width: 100%;
+      border: 2px solid #444;
+      border-radius: 8px;
+      background: #000;
+      display: block;
+    }
+
+    .robots-container {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+
+    .robot-panel {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 20px;
+      width: 200px;
+    }
+
+    .robot-panel.robot1 { border-color: #ff8c00; box-shadow: 0 0 12px rgba(255, 140, 0, 0.3); }
+    .robot-panel.robot1 h2 { color: #ff8c00; }
+    .robot-panel.robot1 .dpad button { border-color: #ff8c00; color: #eee; }
+    .robot-panel.robot1 .dpad button:hover:not(:disabled) { background: #2e1e00; }
+    .robot-panel.robot1 .dpad button:active:not(:disabled) { background: #3e2800; }
+
+    .robot-panel.robot2 { border-color: #00bcd4; box-shadow: 0 0 12px rgba(0, 188, 212, 0.3); }
+    .robot-panel.robot2 h2 { color: #00bcd4; }
+    .robot-panel.robot2 .dpad button { border-color: #00bcd4; color: #eee; }
+    .robot-panel.robot2 .dpad button:hover:not(:disabled) { background: #001e22; }
+    .robot-panel.robot2 .dpad button:active:not(:disabled) { background: #002b30; }
+
+    .robot-panel h2 { margin-bottom: 16px; }
+
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 52px);
+      grid-template-rows: repeat(3, 52px);
+      gap: 4px;
+      margin: 0 auto;
+      width: fit-content;
+    }
+
+    .dpad button {
+      width: 52px;
+      height: 52px;
+      font-size: 18px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .dpad button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .dpad .empty { visibility: hidden; }
+
+    .sync-section { margin-top: 30px; }
+
+    #syncBtn {
+      padding: 14px 36px;
+      font-size: 16px;
+      font-family: monospace;
+      background: #222;
+      color: #eee;
+      border: 2px solid #555;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #syncBtn:hover:not(:disabled) { background: #333333; }
+    #syncBtn.active { border-color: #4caf50; color: #4caf50; }
+    #syncBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .estop-section { margin-top: 16px; }
+
+    #estopBtn {
+      padding: 14px 36px;
+      font-size: 16px;
+      font-family: monospace;
+      background: #1a0000;
+      color: #ff3333;
+      border: 2px solid #ff3333;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+
+    #estopBtn:hover { background: #2a0000; }
+
+    #estopBtn.active {
+      background: #ff3333;
+      color: #fff;
+      border-color: #ff6666;
+      animation: pulse-red 1s infinite;
+    }
+
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 10px rgba(255,51,51,0.5); }
+      50% { box-shadow: 0 0 24px rgba(255,51,51,0.9); }
+      100% { box-shadow: 0 0 10px rgba(255,51,51,0.5); }
+    }
+
+    #screen { margin-top: 10px; }
+
+    #lastCmd {
+      margin-top: 10px;
+      font-size: 22px;
+      color: #fff;
+    }
+
+    #log {
+      margin: 30px auto 0;
+      max-width: 500px;
+      text-align: left;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px;
+      height: 120px;
+      overflow-y: auto;
+      font-size: 12px;
+      color: #13f126;
+    }
+
+    .gpio-section {
+      margin-top: 25px;
+    }
+
+    .gpio-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .gpio-buttons button {
+      padding: 12px 24px;
+      font-size: 15px;
+      font-family: monospace;
+      border-radius: 8px;
+      border: 1px solid #555;
+      background: #222;
+      color: #eee;
+      cursor: pointer;
+    }
+
+    .gpio-buttons button:hover {
+      background: #333;
+    }
+
+    #result {
+      margin-top: 12px;
+      font-size: 16px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="camera-section">
+    <h3>Camera POV</h3>
+    <img id="cam1" src="http://christpi.local:5000/frame.jpg" alt="Camera POV">
+    <div id="camStatus" style="margin-top:10px;color:#13f126;">Connexion...</div>
+  </div>
+
+  <h1>Robot Control</h1>
+
+  <div class="robots-container">
+    <div class="robot-panel robot1">
+      <h2>Robot 1</h2>
+      <div class="dpad">
+        <div class="empty"></div>
+        <button
+          onmousedown="startCmd(1,'HAUT')"
+          onmouseup="stopCmd(1,'HAUT')"
+          onmouseleave="stopCmd(1,'HAUT')"
+          ontouchstart="startCmd(1,'HAUT'); event.preventDefault();"
+          ontouchend="stopCmd(1,'HAUT'); event.preventDefault();">
+          <i class="fas fa-arrow-up"></i>
+        </button>
+        <div class="empty"></div>
+
+        <button
+          onmousedown="startCmd(1,'GAUCHE')"
+          onmouseup="stopCmd(1,'GAUCHE')"
+          onmouseleave="stopCmd(1,'GAUCHE')"
+          ontouchstart="startCmd(1,'GAUCHE'); event.preventDefault();"
+          ontouchend="stopCmd(1,'GAUCHE'); event.preventDefault();">
+          <i class="fas fa-arrow-left"></i>
+        </button>
+        <div class="empty"></div>
+        <button
+          onmousedown="startCmd(1,'DROITE')"
+          onmouseup="stopCmd(1,'DROITE')"
+          onmouseleave="stopCmd(1,'DROITE')"
+          ontouchstart="startCmd(1,'DROITE'); event.preventDefault();"
+          ontouchend="stopCmd(1,'DROITE'); event.preventDefault();">
+          <i class="fas fa-arrow-right"></i>
+        </button>
+
+        <div class="empty"></div>
+        <button
+          onmousedown="startCmd(1,'BAS')"
+          onmouseup="stopCmd(1,'BAS')"
+          onmouseleave="stopCmd(1,'BAS')"
+          ontouchstart="startCmd(1,'BAS'); event.preventDefault();"
+          ontouchend="stopCmd(1,'BAS'); event.preventDefault();">
+          <i class="fas fa-arrow-down"></i>
+        </button>
+        <div class="empty"></div>
+      </div>
+    </div>
+
+    <div class="robot-panel robot2">
+      <h2>Robot 2</h2>
+      <div class="dpad">
+        <div class="empty"></div>
+        <button
+          onmousedown="startCmd(2,'HAUT')"
+          onmouseup="stopCmd(2,'HAUT')"
+          onmouseleave="stopCmd(2,'HAUT')"
+          ontouchstart="startCmd(2,'HAUT'); event.preventDefault();"
+          ontouchend="stopCmd(2,'HAUT'); event.preventDefault();">
+          <i class="fas fa-arrow-up"></i>
+        </button>
+        <div class="empty"></div>
+
+        <button
+          onmousedown="startCmd(2,'GAUCHE')"
+          onmouseup="stopCmd(2,'GAUCHE')"
+          onmouseleave="stopCmd(2,'GAUCHE')"
+          ontouchstart="startCmd(2,'GAUCHE'); event.preventDefault();"
+          ontouchend="stopCmd(2,'GAUCHE'); event.preventDefault();">
+          <i class="fas fa-arrow-left"></i>
+        </button>
+        <div class="empty"></div>
+        <button
+          onmousedown="startCmd(2,'DROITE')"
+          onmouseup="stopCmd(2,'DROITE')"
+          onmouseleave="stopCmd(2,'DROITE')"
+          ontouchstart="startCmd(2,'DROITE'); event.preventDefault();"
+          ontouchend="stopCmd(2,'DROITE'); event.preventDefault();">
+          <i class="fas fa-arrow-right"></i>
+        </button>
+
+        <div class="empty"></div>
+        <button
+          onmousedown="startCmd(2,'BAS')"
+          onmouseup="stopCmd(2,'BAS')"
+          onmouseleave="stopCmd(2,'BAS')"
+          ontouchstart="startCmd(2,'BAS'); event.preventDefault();"
+          ontouchend="stopCmd(2,'BAS'); event.preventDefault();">
+          <i class="fas fa-arrow-down"></i>
+        </button>
+        <div class="empty"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sync-section">
+    <button id="syncBtn" onclick="toggleSync()">SYNC OFF</button>
+  </div>
+
+  <div class="estop-section">
+    <button id="estopBtn" onclick="toggleEstop()">&#x26D4; EMERGENCY STOP</button>
+  </div>
+
+  <div class="gpio-section">
+    <h2>GPIO Test</h2>
+    <div class="gpio-buttons">
+      <button onclick="setGPIO('on')">Turn ON</button>
+      <button onclick="setGPIO('off')">Turn OFF</button>
+    </div>
+    <p id="result">State: unknown</p>
+  </div>
+
+  <div id="screen">
+    <div id="lastCmd">En attente...</div>
+  </div>
+
+  <div id="log">> Pret.</div>
+
+  <script>
+    let sync = false;
+    let estop = false;
+    const activeCommands = new Set();
+
+    const API_BASE = "http://christpi.local:5000";
+    const CAM_URL = API_BASE + "/frame.jpg";
+    const cam = document.getElementById("cam1");
+
+    function refreshCam() {
+      cam.src = CAM_URL + "?t=" + Date.now();
+    }
+
+    refreshCam();
+    setInterval(refreshCam, 200);
+
+    cam.onload = function() {
+      document.getElementById("camStatus").textContent = "Image reçue";
+    };
+
+    cam.onerror = function() {
+      document.getElementById("camStatus").textContent = "En attente de la camera...";
+    };
+
+    function toggleSync() {
+      sync = !sync;
+      const btn = document.getElementById('syncBtn');
+      btn.textContent = sync ? 'SYNC ON' : 'SYNC OFF';
+      btn.classList.toggle('active', sync);
+      afficher(sync ? 'SYNC active' : 'SYNC desactive');
+      log(sync ? '[SYNC] Active' : '[SYNC] Desactive');
+    }
+
+    function toggleEstop() {
+      estop = !estop;
+      const btn = document.getElementById('estopBtn');
+      const syncBtn = document.getElementById('syncBtn');
+      const dpadBtns = document.querySelectorAll('.dpad button');
+
+      if (estop) {
+        btn.classList.add('active');
+        dpadBtns.forEach(b => b.disabled = true);
+        syncBtn.disabled = true;
+        stopAll();
+        afficher('EMERGENCY STOP');
+        log('[E-STOP] EMERGENCY STOP');
+      } else {
+        btn.classList.remove('active');
+        dpadBtns.forEach(b => b.disabled = false);
+        syncBtn.disabled = false;
+        afficher('Systeme retabli');
+        log('[E-STOP] Systeme retabli');
+      }
+    }
+
+    function makeKey(robot, dir) {
+      return robot + '_' + dir;
+    }
+
+    async function envoyerCommande(robot, dir, action) {
+      try {
+        const response = await fetch(API_BASE + '/cmd', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            robot: robot,
+            direction: dir,
+            action: action
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+          log('[GPIO CMD] ' + data.message);
+        } else {
+          log('[GPIO CMD] Erreur: ' + data.message);
+        }
+      } catch (error) {
+        log('[GPIO CMD] Impossible de joindre /cmd');
+      }
+    }
+
+    function startCmd(robot, dir) {
+      if (estop) return;
+
+      if (sync) {
+        startOne(1, dir, 'R1 + R2 -> ' + dir, '[R1+R2] START -> ' + dir);
+        startOne(2, dir, 'R1 + R2 -> ' + dir, '[R1+R2] START -> ' + dir);
+      } else {
+        startOne(robot, dir, 'R' + robot + ' -> ' + dir, '[R' + robot + '] START -> ' + dir);
+      }
+    }
+
+    function stopCmd(robot, dir) {
+      if (sync) {
+        stopOne(1, dir);
+        stopOne(2, dir);
+        afficher('Relache');
+      } else {
+        stopOne(robot, dir);
+        afficher('Relache');
+      }
+    }
+
+    function startOne(robot, dir, screenMsg, logMsg) {
+      const key = makeKey(robot, dir);
+      if (activeCommands.has(key)) return;
+      activeCommands.add(key);
+      afficher(screenMsg);
+      log(logMsg);
+      envoyerCommande(robot, dir, 'start');
+    }
+
+    function stopOne(robot, dir) {
+      const key = makeKey(robot, dir);
+      if (!activeCommands.has(key)) return;
+      activeCommands.delete(key);
+      log('[R' + robot + '] STOP -> ' + dir);
+      envoyerCommande(robot, dir, 'stop');
+    }
+
+    function stopAll() {
+      const commands = Array.from(activeCommands);
+      activeCommands.clear();
+
+      commands.forEach(item => {
+        const parts = item.split('_');
+        const robot = parseInt(parts[0]);
+        const dir = parts[1];
+        envoyerCommande(robot, dir, 'stop');
+      });
+    }
+
+    function afficher(msg) {
+      document.getElementById('lastCmd').textContent = msg;
+    }
+
+    function log(msg) {
+      const el = document.getElementById('log');
+      el.innerHTML += '<div>> ' + msg + '</div>';
+      el.scrollTop = el.scrollHeight;
+    }
+
+    async function setGPIO(action) {
+      try {
+        const response = await fetch(API_BASE + '/gpio', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ action: action })
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+          document.getElementById('result').innerText = 'State: ' + data.state;
+          log('[GPIO TEST] ' + data.state);
+        } else {
+          document.getElementById('result').innerText = 'Error';
+          log('[GPIO TEST] Erreur serveur');
+        }
+      } catch (error) {
+        document.getElementById('result').innerText = 'Error';
+        log('[GPIO TEST] Impossible de joindre /gpio');
+      }
+    }
+
+    document.addEventListener('mouseup', function() {
+      stopAll();
+    });
+
+    document.addEventListener('touchend', function() {
+      stopAll();
+    });
+
+    document.addEventListener('touchcancel', function() {
+      stopAll();
+    });
+  </script>
+
+</body>
+</html>
