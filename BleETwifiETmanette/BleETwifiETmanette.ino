@@ -1,73 +1,109 @@
 #include <WiFi.h>
-#include <AsyncUDP.h>
+#include <WiFiUdp.h>
 #include <ArduinoJson.h>
 
-// --- Pins Moteurs ---
-#define M_GAUCHE_1 4
-#define M_GAUCHE_2 5
-#define M_DROIT_1 6
-#define M_DROIT_2 7
+// --- PINS SPÉCIFIQUES ESP32-C3 ---
+#define L_AV 4
+#define L_RE 5
+#define R_AV 6
+#define R_RE 7
 
-// --- Paramètres Réseau ---
-const char* ssid = "ROBOT_ADAM_PEAK";
+const char* ssid = "robot";
 const char* password = "pass1234";
 const int portUDP = 1234;
 
-AsyncUDP udp;
-unsigned long lastPacketTime = 0; // <<< DÉPLACÉ ICI (Global)
+WiFiUDP udp;
+unsigned long lastPacketTime = 0;
 
 void stopperRobot() {
-  digitalWrite(M_GAUCHE_1, LOW); digitalWrite(M_GAUCHE_2, LOW);
-  digitalWrite(M_DROIT_1, LOW); digitalWrite(M_DROIT_2, LOW);
+  digitalWrite(L_AV, LOW); digitalWrite(L_RE, LOW);
+  digitalWrite(R_AV, LOW); digitalWrite(R_RE, LOW);
 }
-
 void setup() {
   Serial.begin(115200);
-  pinMode(M_GAUCHE_1, OUTPUT); pinMode(M_GAUCHE_2, OUTPUT);
-  pinMode(M_DROIT_1, OUTPUT); pinMode(M_DROIT_2, OUTPUT);
-  stopperRobot();
+  Serial.setTimeout(10);
+  delay(2000);
 
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ssid, password, 1, 0, 4);
-  
-  Serial.println(">>>> Wi-Fi PEAK ACTIF");
+  // --- MODE STATION (Se connecte au routeur) ---
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
 
-  if(udp.listen(portUDP)) {
-    udp.onPacket([](AsyncUDPPacket packet) {
-      lastPacketTime = millis(); // <<< ON MET À JOUR LE TEMPS ICI
-      
-      StaticJsonDocument<128> doc;
-      deserializeJson(doc, packet.data(), packet.length());
-      
-      const char* cmd = doc["cmd"];
-      int v = doc["v"] ? doc["v"] : 255; 
-
-      if      (strcmp(cmd, "AVANCE") == 0)  { analogWrite(M_GAUCHE_1, v); digitalWrite(M_GAUCHE_2, LOW); analogWrite(M_DROIT_1, v); digitalWrite(M_DROIT_2, LOW); }
-      else if (strcmp(cmd, "RECULER") == 0) { digitalWrite(M_GAUCHE_1, LOW); analogWrite(M_GAUCHE_2, v); digitalWrite(M_DROIT_1, LOW); analogWrite(M_DROIT_2, v); }
-      else if (strcmp(cmd, "GAUCHE") == 0)  { digitalWrite(M_GAUCHE_1, LOW); digitalWrite(M_GAUCHE_2, LOW); analogWrite(M_DROIT_1, v); digitalWrite(M_DROIT_2, LOW); }
-      else if (strcmp(cmd, "DROITE") == 0)  { analogWrite(M_GAUCHE_1, v); digitalWrite(M_GAUCHE_2, LOW); digitalWrite(M_DROIT_1, LOW); digitalWrite(M_DROIT_2, LOW); }
-      else if (strcmp(cmd, "STOP") == 0)    { stopperRobot(); }
-    });
+  Serial.print("Connexion au WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
 
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info){
-    if(event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) {
-       Serial.println(">>> WIFI: PI CONNECTÉ AU RÉSEAU !");
-    }
-  });
+  Serial.println("\n✅ CONNECTÉ !");
+  Serial.print("Adresse IP du robot : ");
+  Serial.println(WiFi.localIP()); // TRÈS IMPORTANT : Note cette IP pour ton Pi
+
+  // Configuration des moteurs
+  pinMode(L_AV, OUTPUT); pinMode(L_RE, OUTPUT);
+  pinMode(R_AV, OUTPUT); pinMode(R_RE, OUTPUT);
+  stopperRobot();
+  
+  udp.begin(portUDP);
 }
 
 void loop() {
-  // --- 1. RÉPONSE AU PI (SERIAL HANDSHAKE) ---
+  // --- 1. SERIAL HANDSHAKE ---
   if (Serial.available() > 0) {
-    String msg = Serial.readStringUntil('\n');
-    if (msg.indexOf("CONNECT") >= 0) {
-      Serial.println("ACK_PI"); // C'est ça que ton Pi attend !
+    if (Serial.readStringUntil('\n').indexOf("CONNECT") >= 0) {
+      Serial.println("ACK_PI"); 
     }
   }
 
-  // --- 2. SÉCURITÉ (SI PERTE DE SIGNAL UDP) ---
-  if (millis() - lastPacketTime > 500 && lastPacketTime > 0) { 
-    stopperRobot(); 
+  // --- 2. RÉCEPTION UDP ---
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    lastPacketTime = millis();
+    char buffer[255];
+    int len = udp.read(buffer, 255);
+    if (len > 0) buffer[len] = 0;
+
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, buffer);
+
+    if (!error) {
+      lastPacketTime = millis(); // ON NE RESET LE TIMER QUE SI LE JSON EST BON
+      const char* cmd = doc["cmd"] | "STOP";
+      int v = doc["v"] | 255;
+      int m_g = doc["m_g"] | 0;
+      int m_d = doc["m_d"] | 0;
+
+      Serial.print(" Action Pi: "); Serial.println(cmd);
+
+      // Moteur Gauche (Pins 4 et 5)
+      if (m_g == 1) { analogWrite(L_AV, v); digitalWrite(L_RE, LOW); }
+      else if (m_g == -1) { digitalWrite(L_AV, LOW); analogWrite(L_RE, v); }
+      else { digitalWrite(L_AV, LOW); digitalWrite(L_RE, LOW); }
+
+      // Moteur Droit (Pins 6 et 7)
+      if (m_d == 1) { analogWrite(R_AV, v); digitalWrite(R_RE, LOW); }
+      else if (m_d == -1) { digitalWrite(R_AV, LOW); analogWrite(R_RE, v); }
+      else { digitalWrite(R_AV, LOW); digitalWrite(R_RE, LOW); }
+    }
   }
+
+  // --- 3. SÉCURITÉ ---
+if (lastPacketTime > 0 && (millis() - lastPacketTime > 1500)) { 
+    // On laisse 1.5s de marge au lieu de 1s pour éviter les micro-coupures
+    stopperRobot();
+    // Serial.println(" Sécurité : Pas de signal UDP");
+  }
+  
+  yield(); // Important pour éviter que le Watchdog ne se fâche
+}
+
+
+// Petite fonction pour nettoyer la loop
+void applyMotors(int m_g, int m_d, int v) {
+    if (m_g == 1) { analogWrite(L_AV, v); digitalWrite(L_RE, LOW); }
+    else if (m_g == -1) { digitalWrite(L_AV, LOW); analogWrite(L_RE, v); }
+    else { digitalWrite(L_AV, LOW); digitalWrite(L_RE, LOW); }
+
+    if (m_d == 1) { analogWrite(R_AV, v); digitalWrite(R_RE, LOW); }
+    else if (m_d == -1) { digitalWrite(R_AV, LOW); analogWrite(R_RE, v); }
+    else { digitalWrite(R_AV, LOW); digitalWrite(R_RE, LOW); }
 }
