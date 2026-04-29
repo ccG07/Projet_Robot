@@ -1,0 +1,404 @@
+from flask import Flask, render_template, request, jsonify, Response
+from flask_cors import CORS
+from gpiozero import OutputDevice
+import serial
+import struct
+import threading
+import time
+import subprocess
+import json
+import os
+from collections import deque
+from statistics import median
+
+app = Flask(__name__)
+CORS(app)
+
+# =========================
+# GPIO CONFIG - ROBOTS TANK
+# =========================
+
+drive_pins = {
+    1: {
+        "GAUCHE_AVANCER": OutputDevice(17, initial_value=False),
+        "GAUCHE_RECULER": OutputDevice(27, initial_value=False),
+        "DROIT_AVANCER": OutputDevice(22, initial_value=False),
+        "DROIT_RECULER": OutputDevice(23, initial_value=False),
+    },
+
+    2: {
+        # IMPORTANT: remplace ces pins par les vraies pins du Robot 2
+        "GAUCHE_AVANCER": OutputDevice(25, initial_value=False),
+        "GAUCHE_RECULER": OutputDevice(5, initial_value=False),
+        "DROIT_AVANCER": OutputDevice(6, initial_value=False),
+        "DROIT_RECULER": OutputDevice(26, initial_value=False),
+    }
+}
+
+drive_actions = {
+    "HAUT": ["GAUCHE_AVANCER", "DROIT_AVANCER"],
+    "BAS": ["GAUCHE_RECULER", "DROIT_RECULER"],
+    "GAUCHE": ["GAUCHE_RECULER", "DROIT_AVANCER"],
+    "DROITE": ["GAUCHE_AVANCER", "DROIT_RECULER"],
+}
+
+def stop_drive(robot):
+    for pin in drive_pins[robot].values():
+        pin.off()
+
+def start_drive(robot, direction):
+    stop_drive(robot)
+
+    for pin_name in drive_actions[direction]:
+        drive_pins[robot][pin_name].on()
+
+# =========================
+# GPIO CONFIG - BRAS ROBOT
+# =========================
+
+arm_pins = {
+    'HAUT': OutputDevice(12, initial_value=False),
+    'BAS': OutputDevice(13, initial_value=False),
+    'GAUCHE': OutputDevice(16, initial_value=False),
+    'DROITE': OutputDevice(19, initial_value=False),
+    'PINCE': OutputDevice(20, initial_value=False),
+}
+
+# =========================
+# CAMERA USB SERIE CONFIG
+# =========================
+SERIAL_PORT = "/dev/ttyUSB0"
+BAUDRATE = 115200
+MAGIC = b"IMG0"
+
+latest_frame = None
+latest_lock = threading.Lock()
+
+
+def read_exact(ser, n):
+    data = b""
+    while len(data) < n:
+        chunk = ser.read(n - len(data))
+        if not chunk:
+            raise TimeoutError("Timeout lecture serie")
+        data += chunk
+    return data
+
+
+def find_magic(ser):
+    buf = b""
+    start = time.time()
+
+    while True:
+        b = ser.read(1)
+        if not b:
+            if time.time() - start > 10:
+                raise TimeoutError("Timeout: MAGIC non trouve")
+            continue
+
+        buf += b
+        if len(buf) > 4:
+            buf = buf[-4:]
+
+        if buf == MAGIC:
+            return
+
+
+def serial_worker():
+    global latest_frame
+
+    while True:
+        try:
+            print("Ouverture du port serie...", SERIAL_PORT)
+            ser = serial.Serial()
+            ser.port = SERIAL_PORT
+            ser.baudrate = BAUDRATE
+            ser.timeout = 2
+            ser.rtscts = False
+            ser.dsrdtr = False
+
+            # tres important: mettre RTS/DTR a False AVANT open()
+            ser.rts = False
+            ser.dtr = False
+
+            ser.open()
+
+            ser.setRTS(False)
+            ser.setDTR(False)
+
+            time.sleep(4)
+
+            start = time.time()
+            while time.time() - start < 2:
+                if ser.in_waiting:
+                    line = ser.readline().decode(errors="ignore").strip()
+                    if line:
+                        print("[ESP32]", line)
+
+            while True:
+                try:
+                    ser.reset_input_buffer()
+                    ser.write(b"R")
+                    ser.flush()
+
+                    find_magic(ser)
+
+                    raw_len = read_exact(ser, 4)
+                    frame_len = struct.unpack("<I", raw_len)[0]
+
+                    if frame_len <= 0 or frame_len > 200000:
+                        print("Taille invalide :", frame_len)
+                        continue
+
+                    frame = read_exact(ser, frame_len)
+
+                    with latest_lock:
+                        latest_frame = frame
+
+                    time.sleep(0.15)
+
+                except Exception as e:
+                    print("Erreur reception frame :", e)
+                    time.sleep(1)
+
+        except Exception as e:
+            print("Erreur ouverture port serie :", e)
+            time.sleep(2)
+
+# =========================
+# Capteur de température
+# =========================
+
+GETADC_PATH = os.path.join(os.path.dirname(__file__), "getAdc")
+
+THERMISTOR_TABLE = [
+    (111.3, -30.0), (86.39, -25), (67.74, -20),
+    (53.39, -15), (42.45, -10), (33.89, -5),
+    (27.28, 0), (22.05, 5), (17.96, 10),
+    (14.68, 15), (12.09, 20), (10, 25),
+    (8.313, 30), (6.941, 35), (5.828, 40),
+    (4.912, 45), (4.161, 50), (3.537, 55),
+    (3.021, 60), (2.589, 65), (2.229, 70),
+    (1.924, 75), (1.669, 80), (1.451, 85),
+    (1.266, 90), (1.108, 95), (0.9735, 100),
+    (0.8574, 105), (0.7579, 110)
+]
+
+def calcul_rt(vadc, vcc=5.0, rdiv=10.0):
+    if vadc >= vcc:
+        return 999999
+    return vadc * rdiv / (vcc - vadc)
+
+def calcul_temperature(vadc, vcc=5.0, rdiv=10.0):
+    rt = calcul_rt(vadc, vcc, rdiv)
+
+    if rt >= THERMISTOR_TABLE[0][0]:
+        return THERMISTOR_TABLE[0][1]
+
+    if rt <= THERMISTOR_TABLE[-1][0]:
+        return THERMISTOR_TABLE[-1][1]
+
+    for i in range(len(THERMISTOR_TABLE) - 1):
+        rt1, t1 = THERMISTOR_TABLE[i]
+        rt2, t2 = THERMISTOR_TABLE[i + 1]
+
+        if rt <= rt1 and rt >= rt2:
+            m = (t2 - t1) / (rt2 - rt1)
+            b = t1 - (m * rt1)
+            return (m * rt) + b
+
+    return None
+
+def lire_temperature():
+    raw = subprocess.check_output([GETADC_PATH, "json"], text=True).strip()
+    data = json.loads(raw)
+
+    vadc = float(data["analogIn3"])
+    temp = calcul_temperature(vadc)
+
+    return {
+        "status": "success",
+        "temp": round(temp, 2),
+        "unit": "C",
+    }
+
+# =========================
+# Capteur de lumiere
+# =========================
+
+LIGHT_INPUT = "analogIn2"   # change si ton photoresistor est sur une autre entree
+LIGHT_MIN = 0.04            # tres clair
+LIGHT_MAX = 1.77            # tres sombre
+
+light_samples = deque(maxlen=7)
+last_light_label = "Moyen"
+
+def clamp(value, min_value, max_value):
+    return max(min_value, min(value, max_value))
+
+def classify_light(percent):
+    global last_light_label
+
+    # hysteresis pour eviter que l'etat change sans arret
+    if last_light_label == "Sombre":
+        if percent > 40:
+            last_light_label = "Moyen"
+    elif last_light_label == "Clair":
+        if percent < 60:
+            last_light_label = "Moyen"
+    else:
+        if percent < 30:
+            last_light_label = "Sombre"
+        elif percent > 70:
+            last_light_label = "Clair"
+
+    return last_light_label
+
+def lire_lumiere():
+    raw = subprocess.check_output([GETADC_PATH, "json"], text=True).strip()
+    data = json.loads(raw)
+
+    vadc = float(data[LIGHT_INPUT])
+
+    # on stocke plusieurs lectures pour lisser
+    light_samples.append(vadc)
+
+    # mediane = plus stable qu'une seule lecture
+    filtered_vadc = median(light_samples)
+
+    # conversion en pourcentage
+    # 0% = tres sombre, 100% = tres clair
+    percent = (LIGHT_MAX - filtered_vadc) / (LIGHT_MAX - LIGHT_MIN) * 100.0
+    percent = round(clamp(percent, 0, 100), 1)
+
+    label = classify_light(percent)
+
+    return {
+        "status": "success",
+        "light": percent,
+        "label": label
+    }
+
+# =========================
+# ROUTES FLASK
+# =========================
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/frame.jpg')
+def frame_jpg():
+    with latest_lock:
+        if latest_frame is None:
+            return Response(status=503)
+        data = latest_frame
+    return Response(data, mimetype='image/jpeg')
+
+
+@app.route('/cmd', methods=['POST'])
+def cmd_control():
+    data = request.get_json(silent=True) or {}
+
+    try:
+        robot = int(data.get('robot'))
+    except (TypeError, ValueError):
+        return jsonify({'status': 'error', 'message': 'robot invalide'}), 400
+
+    direction = str(data.get('direction', '')).upper()
+    action = str(data.get('action', '')).lower()
+
+    if robot not in drive_pins:
+        return jsonify({'status': 'error', 'message': 'robot invalide'}), 400
+
+    if direction not in drive_actions:
+        return jsonify({'status': 'error', 'message': 'direction invalide'}), 400
+
+    if action == 'start':
+        start_drive(robot, direction)
+        return jsonify({
+            'status': 'success',
+            'message': f'Robot {robot} {direction} active'
+        })
+
+    elif action == 'stop':
+        stop_drive(robot)
+        return jsonify({
+            'status': 'success',
+            'message': f'Robot {robot} {direction} desactive'
+        })
+
+    return jsonify({'status': 'error', 'message': 'action invalide'}), 400
+
+@app.route('/arm_cmd', methods=['POST'])
+def arm_cmd_control():
+    data = request.get_json(silent=True) or {}
+
+    direction = str(data.get('direction', '')).upper()
+    action = str(data.get('action', '')).lower()
+
+    if direction not in arm_pins:
+        return jsonify({'status': 'error', 'message': 'direction bras invalide'}), 400
+
+    pin = arm_pins[direction]
+
+    if action == 'start':
+        pin.on()
+
+        if direction == 'PINCE':
+            return jsonify({
+                'status': 'success',
+                'message': 'Pince fermee'
+            })
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Bras {direction} actif'
+        })
+
+    elif action == 'stop':
+        pin.off()
+
+        if direction == 'PINCE':
+            return jsonify({
+                'status': 'success',
+                'message': 'Pince ouverte'
+            })
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Bras {direction} arrete'
+        })
+
+    return jsonify({'status': 'error', 'message': 'action invalide'}), 400
+
+
+@app.route('/test')
+def test():
+    return jsonify({'status': 'ok'})
+
+@app.route('/temperature')
+def temperature():
+    try:
+        return jsonify(lire_temperature())
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/light')
+def light():
+    try:
+        return jsonify(lire_lumiere())
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+if __name__ == '__main__':
+    t = threading.Thread(target=serial_worker, daemon=True)
+    t.start()
+    app.run(host='0.0.0.0', port=5000, threaded=True)
