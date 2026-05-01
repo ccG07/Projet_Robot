@@ -31,12 +31,11 @@ def main():
     # Move to start position
     send_pulse(pwm, duty)
 
-    print("MG90S Neutral Finder (pulse-and-cut)")
-    print("─────────────────────────────")
+
     print("  w / s  →  increase / decrease")
     print("  r      →  reset to 7.5%")
-    print("  q      →  quit and save result")
-    print("─────────────────────────────")
+    print("  q      →  quit")
+    print("--------------------------------")
     print(f"Starting at {duty}% = {duty_to_us(duty):.0f}µs\n")
 
     fd = sys.stdin.fileno()

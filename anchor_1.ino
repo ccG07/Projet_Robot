@@ -1,3 +1,5 @@
+//config d'une balise de localisation
+
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
